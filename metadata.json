@@ -1,0 +1,5 @@
+{
+  "name": "SingLingo tests",
+  "description": "An immersive AI vocal coach for English learners, visualizing pronunciation details like linking, elision, and stress in sync with music.",
+  "requestFramePermissions": []
+}
