@@ -837,7 +837,7 @@ const App: React.FC = () => {
                 showCoachToast("Audio format not supported.");
             }
         }}
-        className="hidden" 
+        className="fixed bottom-0 left-0 w-0 h-0 opacity-0 pointer-events-none" 
       />
 
       <ControlBar state={playerState} onTogglePlay={togglePlay} onSeek={seek} onSetRate={setPlaybackRate} onToggleLoop={toggleLoop} fileName={fileName} />

@@ -28,7 +28,7 @@ export const ControlBar: React.FC<ControlBarProps> = ({
   const progress = state.duration ? (state.currentTime / state.duration) * 100 : 0;
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-[100] touch-none">
+    <div className="fixed bottom-0 left-0 right-0 z-[100]">
       {/* Glass Container - Mobile: px-4 pt-3 pb-6 (Increased padding for breathing room & lift) */}
       <div className="bg-[#120c29]/95 backdrop-blur-xl border-t border-white/10 px-4 pt-3 pb-6 md:px-6 md:pt-5 md:pb-8 shadow-[0_-10px_40px_rgba(0,0,0,0.8)] transition-all duration-300">
         {/* Mobile Gap: 1.5 (More comfortable spacing) */}
