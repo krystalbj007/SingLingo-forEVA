@@ -41,7 +41,7 @@ export const analyzeLyricsWithGemini = async (text: string): Promise<LinguisticA
             properties: {
               fromWordIndex: { type: Type.INTEGER },
               toWordIndex: { type: Type.INTEGER },
-              type: { type: Type.STRING, enum: ["consonant-vowel", "consonant-consonant", "vowel-vowel"] }
+              type: { type: Type.STRING, enum: ["consonant-vowel", "consonant-consonant", "vowel-vowel", "vowel-consonant"] }
             },
             required: ["fromWordIndex", "toWordIndex", "type"]
           }

@@ -15,7 +15,7 @@ export interface LinguisticAnalysis {
 export interface LinkData {
   fromWordIndex: number;
   toWordIndex: number;
-  type: 'consonant-vowel' | 'consonant-consonant' | 'vowel-vowel';
+  type: 'consonant-vowel' | 'consonant-consonant' | 'vowel-vowel' | 'vowel-consonant';
 }
 
 export interface StressData {
