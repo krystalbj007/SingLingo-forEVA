@@ -371,6 +371,15 @@ const App: React.FC = () => {
 
   const togglePlay = () => {
     if (!audioRef.current) return;
+    
+    // iOS Safari workaround: Force wake up audio subsystem
+    // We execute a quick play/pause sequence to "bump" the audio channel open
+    const bump = audioRef.current.play();
+    if (bump !== undefined) {
+        bump.catch(() => {});
+    }
+    audioRef.current.pause();
+
     if (playerState.isPlaying) {
       audioRef.current.pause();
     } else {
