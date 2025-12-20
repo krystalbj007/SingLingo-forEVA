@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { PlayerState } from '../types';
 import { Play, Pause, Repeat, FastForward, Rewind } from 'lucide-react';
 
@@ -19,20 +19,52 @@ export const ControlBar: React.FC<ControlBarProps> = ({
   onToggleLoop,
   fileName
 }) => {
+  // Local state for smooth progress animation
+  const [visualTime, setVisualTime] = useState(state.currentTime);
+  const rafRef = useRef<number>();
+  const lastTimeRef = useRef(state.currentTime);
+
+  // Sync visual time with props, but interpolate when playing
+  useEffect(() => {
+    if (!state.isPlaying) {
+        setVisualTime(state.currentTime);
+        if (rafRef.current) cancelAnimationFrame(rafRef.current);
+        return;
+    }
+
+    const animate = () => {
+        // We can't easily access the TRUE audio.currentTime here without the ref.
+        // But we receive 'state.currentTime' updates periodically.
+        // If we want 60fps, we need to interpolate or query the audio element directly.
+        // Since we don't have the audio element here, let's rely on the parent's updates
+        // BUT we removed the CSS transition, so it won't flicker.
+        // To make it TRULY smooth (60fps), we would need to move this logic to App.tsx 
+        // or pass audioRef down.
+        // For now, let's just use the prop directly without local smoothing to ensure correctness first.
+        setVisualTime(state.currentTime);
+    };
+    
+    animate();
+  }, [state.currentTime, state.isPlaying]);
+
   const formatTime = (time: number) => {
+    if (!Number.isFinite(time) || isNaN(time)) return "0:00";
     const min = Math.floor(time / 60);
     const sec = Math.floor(time % 60);
     return `${min}:${sec.toString().padStart(2, '0')}`;
   };
 
-  const progress = state.duration ? (state.currentTime / state.duration) * 100 : 0;
+  const progress = state.duration && Number.isFinite(state.duration) ? (state.currentTime / state.duration) * 100 : 0;
 
+  // Use a local ref to track if user is dragging (seeking) to prevent jitter
+  // For now, we just rely on props, but we removed the CSS transition to fix flicker.
+  
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50">
-      {/* Glass Container - Mobile: px-4 pt-3 pb-6 (Increased padding for breathing room & lift) */}
-      <div className="bg-[#120c29]/95 backdrop-blur-xl border-t border-white/10 px-4 pt-3 pb-6 md:px-6 md:pt-5 md:pb-8 shadow-[0_-10px_40px_rgba(0,0,0,0.8)] transition-all duration-300">
-        {/* Mobile Gap: 1.5 (More comfortable spacing) */}
-        <div className="max-w-4xl mx-auto flex flex-col gap-1.5 md:gap-4">
+      {/* Glass Container - Mobile: Compact layout */}
+      <div className="bg-[#120c29]/95 backdrop-blur-xl border-t border-white/10 px-3 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] md:px-6 md:pt-5 md:pb-8 shadow-[0_-10px_40px_rgba(0,0,0,0.8)] transition-all duration-300">
+        {/* Mobile Gap: 1 (Tight layout) */}
+        <div className="max-w-4xl mx-auto flex flex-col gap-1 md:gap-4">
           
           {/* Row 1: Time & Title Info */}
           <div className="flex items-center justify-between text-[10px] md:text-xs font-medium text-slate-400 px-1">
@@ -46,9 +78,9 @@ export const ControlBar: React.FC<ControlBarProps> = ({
             <span className="w-8 text-right font-mono text-slate-500 opacity-80">{formatTime(state.duration)}</span>
           </div>
 
-          {/* Row 2: Progress Bar - Mobile: my-1 for slight vertical separation */}
+          {/* Row 2: Progress Bar - Mobile: my-0.5 */}
           <div 
-            className="group relative w-full h-3 md:h-4 flex items-center cursor-pointer touch-none my-1"
+            className="group relative w-full h-3 md:h-4 flex items-center cursor-pointer touch-none my-0.5 md:my-1"
             onClick={(e) => {
               const rect = e.currentTarget.getBoundingClientRect();
               const x = e.clientX - rect.left;
@@ -75,10 +107,10 @@ export const ControlBar: React.FC<ControlBarProps> = ({
                 />
              </div>
              
-             {/* Thumb - Mobile: w-2.5 h-2.5 (Slightly larger for visibility) */}
+             {/* Thumb - Mobile: w-3 h-3 */}
              <div 
-               className="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 md:w-4 md:h-4 bg-white rounded-full shadow-[0_0_10px_rgba(255,255,255,0.8)] z-20 pointer-events-none transition-transform active:scale-125"
-               style={{ left: `${progress}%`, transform: 'translate(-50%, -50%)' }}
+               className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-3 h-3 md:w-4 md:h-4 bg-white rounded-full shadow-[0_0_10px_rgba(255,255,255,0.8)] z-20 pointer-events-none transition-all duration-300 ease-linear group-active:scale-125"
+               style={{ left: `${progress}%` }}
              />
           </div>
 
@@ -89,23 +121,23 @@ export const ControlBar: React.FC<ControlBarProps> = ({
             <div className="flex-1 flex justify-start">
                 <button 
                     onClick={onToggleLoop}
-                    className={`p-2 rounded-full transition-all ${state.loopActive ? 'text-cyan-400 bg-cyan-400/10' : 'text-slate-500 hover:text-white'}`}
+                    className={`p-1.5 md:p-2 rounded-full transition-all ${state.loopActive ? 'text-cyan-400 bg-cyan-400/10' : 'text-slate-500 hover:text-white'}`}
                     title="Loop Section"
                 >
-                    <Repeat size={16} className="md:w-5 md:h-5" strokeWidth={state.loopActive ? 2.5 : 2} />
+                    <Repeat size={14} className="md:w-5 md:h-5" strokeWidth={state.loopActive ? 2.5 : 2} />
                 </button>
             </div>
 
             {/* Center: Playback Controls */}
             <div className="flex-initial flex items-center justify-center gap-4 md:gap-8">
                <button 
-                 className="text-slate-400 hover:text-white active:scale-95 transition-transform p-1.5 md:p-1.5"
+                 className="text-slate-400 hover:text-white active:scale-95 transition-transform p-1 md:p-1.5"
                  onClick={() => onSeek(Math.max(0, state.currentTime - 5))}
                >
-                  <Rewind size={20} className="md:w-7 md:h-7" />
+                  <Rewind size={18} className="md:w-7 md:h-7" />
                </button>
 
-               {/* Play Button: w-10 h-10 (40px) - slightly larger again for ergonomics */}
+               {/* Play Button: w-10 h-10 (40px) on mobile, w-16 h-16 (64px) on desktop */}
                <button 
                 onClick={onTogglePlay}
                 className="w-10 h-10 md:w-16 md:h-16 rounded-full bg-gradient-to-br from-cyan-400 via-blue-500 to-fuchsia-600 text-white flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-[0_0_20px_rgba(37,99,235,0.4)] border border-white/20"
@@ -117,10 +149,10 @@ export const ControlBar: React.FC<ControlBarProps> = ({
                </button>
 
                <button 
-                 className="text-slate-400 hover:text-white active:scale-95 transition-transform p-1.5 md:p-1.5"
+                 className="text-slate-400 hover:text-white active:scale-95 transition-transform p-1 md:p-1.5"
                  onClick={() => onSeek(Math.min(state.duration, state.currentTime + 5))}
                >
-                  <FastForward size={20} className="md:w-7 md:h-7" />
+                  <FastForward size={18} className="md:w-7 md:h-7" />
                </button>
             </div>
 
@@ -141,9 +173,9 @@ export const ControlBar: React.FC<ControlBarProps> = ({
 
           </div>
 
-          {/* Row 4: Copyright Footer - pt-1 for separation */}
-          <div className="w-full text-center pt-1 md:pt-3">
-             <p className="text-[9px] md:text-xs text-slate-600 md:text-slate-500 font-mono tracking-tight opacity-50 md:opacity-70 select-none scale-95 md:scale-100 origin-center">
+          {/* Row 4: Copyright Footer */}
+          <div className="w-full text-center pt-1 md:pt-3 pb-1 md:pb-0">
+             <p className="text-[8px] md:text-xs text-slate-600 md:text-slate-500 font-mono tracking-tight opacity-50 md:opacity-70 select-none scale-95 md:scale-100 origin-center">
                 © 2025 Krystal. All rights reserved · Powered by AI
             </p>
           </div>

@@ -6,7 +6,9 @@ import { LinguisticAnalysis } from "../types";
 const getClient = () => {
   const apiKey = process.env.API_KEY;
   if (!apiKey) {
-    throw new Error("API Key is missing. Please set process.env.API_KEY.");
+    // Suppress warning in production/demo mode
+    console.log("No API Key found. Running in Offline Demo Mode.");
+    return null;
   }
   return new GoogleGenAI({ apiKey });
 };
@@ -14,6 +16,19 @@ const getClient = () => {
 export const analyzeLyricsWithGemini = async (text: string): Promise<LinguisticAnalysis & { translation: string }> => {
   try {
     const ai = getClient();
+    
+    if (!ai) {
+       // Mock logic for demo/fallback
+       await new Promise(resolve => setTimeout(resolve, 800)); // Simulate delay
+       const words = text.split(' ');
+       return {
+          links: [],
+          stress: [],
+          elisions: [],
+          explanation: "Offline Mode: Analysis unavailable for new content.",
+          translation: ""
+       };
+    }
     
     // Schema definition for strict JSON output
     const schema = {
@@ -74,8 +89,8 @@ export const analyzeLyricsWithGemini = async (text: string): Promise<LinguisticA
     `;
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: prompt,
+      model: "gemini-1.5-flash-001", // Use specific version to avoid 404
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
       config: {
         responseMimeType: "application/json",
         responseSchema: schema,
