@@ -4,7 +4,7 @@ import { LinguisticAnalysis } from "../types";
 // --- CONFIGURATION ---
 // TODO: Enter your Gemini API Key here
 // You can also set it in your browser's Local Storage with key: "GEMINI_API_KEY"
-export const USER_PROVIDED_API_KEY = ""; 
+export const USER_PROVIDED_API_KEY = "AIzaSyDnlhc9-QTDqsWcuShw8-jHezIV5kl1cAs"; 
 // ---------------------
 
 // Initialize Gemini Client
