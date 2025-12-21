@@ -206,13 +206,44 @@ const App: React.FC = () => {
             // STRATEGY: Unblock UI first, then load extra songs
             // ---------------------------------------------
 
+            // CLEANUP: Remove old broken song entries from previous attempts
+            const OLD_BROKEN_IDS = [
+                "song-how-far-ill-go",
+                "song-beauty-and-the-beast",
+                "song-try-everything",
+                "song-remember-me",
+                "song-zoo",
+                "song-try-everything-clean", // remove previous attempt
+                "song-remember-me-clean",
+                "song-zoo-clean",
+                "song-how-far-ill-go-clean", // Clean up potential mismatches
+                 "song-beauty-and-the-beast-clean",
+                 "song-zoo-v2", // Force refresh zoo
+                 "song-beauty-and-the-beast-v2" // Force refresh beauty
+             ];
+            
+            let cleanupCount = 0;
+            for (const oldId of OLD_BROKEN_IDS) {
+                if (allSongs.some(s => s.id === oldId)) {
+                    await deleteSongFromLibrary(oldId);
+                    cleanupCount++;
+                }
+            }
+            
+            if (cleanupCount > 0) {
+                console.log(`Cleaned up ${cleanupCount} old/broken song entries.`);
+                // Refresh list after cleanup
+                allSongs = await getAllSongs();
+                setSavedSongs(allSongs);
+            }
+
             const lastPlayedId = localStorage.getItem("lastPlayedSongId");
             let songToLoad: SavedSong | undefined;
 
             if (lastPlayedId) {
                 songToLoad = allSongs.find(s => s.id === lastPlayedId);
                 if (songToLoad) {
-                    console.log(`Found last played song: ${songToLoad.name} (Has Analysis: ${songToLoad.lyrics.some(l => l.analysis)})`);
+                    console.log(`Found last played song: ${songToLoad.name}`);
                 }
             }
 
@@ -301,6 +332,56 @@ const App: React.FC = () => {
                 }
             }
 
+            // ---------------------------------------------
+            // AUTO-FIX: Update Lyrics Text without losing Analysis
+            // ---------------------------------------------
+            const fixTargetId = "song-try-everything-v2";
+            const targetSong = allSongs.find(s => s.id === fixTargetId);
+            if (targetSong) {
+                try {
+                    const lrcUrl = "/lyrics/Shakira - Try Everything.lrc";
+                     // Use timestamp to bypass cache
+                     const res = await fetch(encodeFileUrl(lrcUrl) + `?t=${Date.now()}`);
+                    if (res.ok) {
+                        const text = await res.text();
+                        const newParsed = parseLRC(text);
+                        
+                        let needsUpdate = false;
+                        // Check if lengths match to ensure safe merge
+                        if (newParsed.length === targetSong.lyrics.length) {
+                            const mergedLyrics = newParsed.map((newLine, idx) => {
+                                const oldLine = targetSong.lyrics[idx];
+                                // Detect if text is different
+                                if (newLine.text.trim() !== oldLine.text.trim()) {
+                                    needsUpdate = true;
+                                }
+                                // PRESERVE ANALYSIS & TRANSLATION
+                                if (oldLine.analysis) newLine.analysis = oldLine.analysis;
+                                if (oldLine.translation) newLine.translation = oldLine.translation;
+                                return newLine;
+                            });
+
+                            if (needsUpdate) {
+                                console.log(`Updating lyrics text for ${targetSong.name} while preserving analysis...`);
+                                targetSong.lyrics = mergedLyrics;
+                                await saveSongToLibrary(targetSong);
+                                
+                                // If this song is currently playing, update the view immediately
+                                if (songToLoad && songToLoad.id === fixTargetId) {
+                                    setLyrics(mergedLyrics);
+                                    lyricsRef.current = mergedLyrics;
+                                    showCoachToast("Lyrics text updated (Analysis saved!)");
+                                } else {
+                                    // Update the local list so the UI reflects it if we open Library
+                                    setSavedSongs(prev => prev.map(s => s.id === fixTargetId ? targetSong : s));
+                                }
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error("Auto-fix failed", e);
+                }
+            }
         } catch (fatalError) {
             console.error("App fatal init error:", fatalError);
             if (!ignore) {
