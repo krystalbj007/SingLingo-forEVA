@@ -83,10 +83,10 @@ export const ControlBar: React.FC<ControlBarProps> = ({
           </div>
 
           {/* Row 3: Controls */}
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between relative">
             
-            {/* Left: Loop */}
-            <div className="flex-1 flex justify-start">
+            {/* Left: Loop - Use basis-0 for perfect centering of middle element */}
+            <div className="flex-1 basis-0 min-w-0 flex justify-start">
                 <button 
                     onClick={onToggleLoop}
                     className={`p-2 rounded-full transition-all ${state.loopActive ? 'text-cyan-400 bg-cyan-400/10' : 'text-slate-500 hover:text-white'}`}
@@ -105,18 +105,18 @@ export const ControlBar: React.FC<ControlBarProps> = ({
                   <Rewind size={20} className="md:w-7 md:h-7" />
                </button>
 
-               {/* Play Button: w-10 h-10 (40px) - slightly larger again for ergonomics */}
+               {/* Play Button */}
                <button 
                 onClick={(e) => {
                   e.stopPropagation();
                   onTogglePlay();
                 }}
-                className="w-10 h-10 md:w-16 md:h-16 rounded-full bg-gradient-to-br from-cyan-400 via-blue-500 to-fuchsia-600 text-white flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-[0_0_20px_rgba(37,99,235,0.4)] border border-white/20 touch-manipulation cursor-pointer"
+                className="w-10 h-10 md:w-14 md:h-14 rounded-full bg-gradient-to-br from-cyan-400 via-blue-500 to-fuchsia-600 text-white flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-[0_0_20px_rgba(37,99,235,0.4)] border border-white/20 touch-manipulation cursor-pointer"
                 style={{ WebkitTapHighlightColor: 'transparent' }}
                >
                  {state.isPlaying ? 
-                    <Pause size={18} className="md:w-8 md:h-8" fill="currentColor" /> : 
-                    <Play size={18} className="md:w-8 md:h-8 ml-0.5 md:ml-1" fill="currentColor" />
+                    <Pause size={18} className="md:w-7 md:h-7" fill="currentColor" /> : 
+                    <Play size={18} className="md:w-7 md:h-7 ml-0.5 md:ml-1" fill="currentColor" />
                  }
                </button>
 
@@ -128,14 +128,14 @@ export const ControlBar: React.FC<ControlBarProps> = ({
                </button>
             </div>
 
-            {/* Right: Rate Selector */}
-            <div className="flex-1 flex justify-end">
-                <div className="flex bg-white/5 rounded-lg p-0.5 border border-white/5 scale-[0.8] md:scale-100 origin-right">
+            {/* Right: Rate Selector - Use basis-0 for perfect centering of middle element */}
+            <div className="flex-1 basis-0 min-w-0 flex justify-end">
+                <div className="flex bg-white/5 rounded-lg p-0.5 border border-white/5 scale-75 md:scale-90 origin-right">
                     {[0.5, 0.75, 1.0].map(rate => (
                         <button
                         key={rate}
                         onClick={() => onSetRate(rate)}
-                        className={`px-2 py-1 md:px-2.5 md:py-1.5 rounded-[5px] text-[10px] md:text-xs font-bold transition-all min-w-[32px] md:min-w-[36px] ${state.playbackRate === rate ? 'bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-[0_0_15px_rgba(192,38,211,0.4)] border border-white/20' : 'text-slate-500 hover:text-slate-300'}`}
+                        className={`px-1.5 py-1 md:px-2 md:py-1 rounded-[4px] text-[9px] md:text-[10px] font-bold transition-all min-w-[28px] md:min-w-[32px] ${state.playbackRate === rate ? 'bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-[0_0_15px_rgba(192,38,211,0.4)] border border-white/20' : 'text-slate-500 hover:text-slate-300'}`}
                         >
                         {rate}
                         </button>

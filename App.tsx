@@ -3,6 +3,7 @@ import { ControlBar } from './components/ControlBar';
 import { LyricsView } from './components/LyricsView';
 import { LibraryModal } from './components/LibraryModal';
 import { parseLRC } from './services/lrcParser';
+import { INITIAL_SONGS } from './data/initialSongs';
 import { PREBAKED_DEMO_ANALYSIS } from './data/prebaked';
 import { analyzeLyricsWithGemini } from './services/geminiService';
 import { saveSongToLibrary, getAllSongs, deleteSongFromLibrary } from './services/storageService';
@@ -130,6 +131,19 @@ const App: React.FC = () => {
 
     const isInit = useRef(false);
 
+    // Helper to safely encode filenames in URL
+    const encodeFileUrl = (path: string) => {
+        try {
+            const parts = path.split('/');
+            const filename = parts.pop();
+            if (!filename) return path;
+            // encodeURIComponent encodes space to %20, comma to %2C, etc.
+            return parts.join('/') + '/' + encodeURIComponent(filename);
+        } catch (e) {
+            return path;
+        }
+    };
+
   // --- Initialization ---
   useEffect(() => {
     // Use the "ignore" pattern to handle React Strict Mode double-invocation correctly.
@@ -161,109 +175,208 @@ const App: React.FC = () => {
             
             if (ignore) return;
             
-            const demoId = "demo-track";
-            let existingDemo = allSongs.find(s => s.id === demoId);
+            // ---------------------------------------------
+            // STRATEGY: Unblock UI first, then load extra songs
+            // ---------------------------------------------
 
-            // PRE-BAKING INJECTION FOR EXISTING DEMO
-            // If we found a demo but it lacks analysis (e.g. from previous load), inject the pre-baked data
-            if (existingDemo) {
-                let hasUpdates = false;
-                existingDemo.lyrics.forEach(line => {
-                    const cleanText = line.text.trim().replace(/\s+/g, ' '); // Normalize whitespace
-                    const cached = PREBAKED_DEMO_ANALYSIS[cleanText];
-                    
-                    // Relaxed check: Inject if analysis is missing OR translation is missing (assuming prebaked has both)
-                    // We also overwrite if the current analysis seems "empty" (no links/stress) but we have rich data
-                    const isAnalysisEmpty = !line.analysis || (line.analysis.links.length === 0 && line.analysis.stress.length === 0);
-                    
-                    if (cached && (isAnalysisEmpty || !line.translation)) {
-                        console.log(`Injecting pre-baked data for line: "${cleanText.substring(0, 20)}..."`);
-                        line.analysis = {
-                            links: cached.links,
-                            stress: cached.stress,
-                            elisions: cached.elisions,
-                            explanation: cached.explanation
-                        };
-                        line.translation = cached.translation;
-                        hasUpdates = true;
-                    }
-                });
-                
-                if (hasUpdates) {
-                    console.log("Injected pre-baked analysis into existing demo");
-                    // Update in DB if possible
-                    if (!dbLoadFailed) {
-                         saveSongToLibrary(existingDemo).catch(e => console.warn("Failed to update demo with pre-baked data", e));
-                    }
-                }
-            }
-
-            if (existingDemo) {
-                if (ignore) return;
-                console.log("Loaded existing demo from library");
-
-                // Cleanup: Remove unwanted footer line if present
-                const lastLine = existingDemo.lyrics[existingDemo.lyrics.length - 1];
-                if (lastLine && lastLine.text.toLowerCase().includes("rentanadviser")) {
-                    console.log("Removing unwanted footer line");
-                    existingDemo.lyrics = existingDemo.lyrics.slice(0, -1);
-                    // Try to update DB, but don't block if it fails
-                    saveSongToLibrary(existingDemo).catch(e => console.error("Failed to update demo cleanup", e));
-                    
-                    // Update local list
-                    const index = allSongs.findIndex(s => s.id === demoId);
-                    if (index !== -1) allSongs[index] = existingDemo;
-                }
-
-                setSavedSongs(allSongs);
-                setFileName(existingDemo.name);
-                setLyrics(existingDemo.lyrics);
-                lyricsRef.current = existingDemo.lyrics; // Sync ref immediately to prevent data loss on analysis
-                setCurrentSongId(existingDemo.id);
-                setCurrentAudioBlob(existingDemo.audioBlob);
-                
-                if (audioRef.current) {
-                    setAudioSource(existingDemo.audioBlob);
-                }
-                return;
-            }
-
-            // 2. If no demo exists, fetch assets
-            let demoAudioBlob: Blob;
-            let demoLyricsText: string;
-
-            try {
-                const audioRes = await fetch(DEMO_AUDIO_URL);
-                if (!audioRes.ok) throw new Error("Failed to load demo audio");
-                demoAudioBlob = await audioRes.blob();
-            } catch (e) {
-                if (ignore) return;
-                console.warn("Using silent blob fallback");
-                demoAudioBlob = createSilentBlob();
-            }
-
-            if (ignore) return;
-
-            try {
-                const lrcRes = await fetch(DEMO_LRC_URL);
-                if (lrcRes.ok) {
-                    demoLyricsText = await lrcRes.text();
-                } else {
-                    demoLyricsText = DEMO_LRC;
-                }
-            } catch (e) {
-                demoLyricsText = DEMO_LRC;
-            }
-
-            if (ignore) return;
-
-            const demoParsed = parseLRC(demoLyricsText);
+            // CLEANUP: Remove old broken song entries from previous attempts
+            const OLD_BROKEN_IDS = [
+                "song-how-far-ill-go",
+                "song-beauty-and-the-beast",
+                "song-try-everything",
+                "song-remember-me",
+                "song-zoo",
+                "song-try-everything-clean", // remove previous attempt
+                "song-remember-me-clean",
+                "song-zoo-clean",
+                "song-how-far-ill-go-clean", // Clean up potential mismatches
+                 "song-beauty-and-the-beast-clean",
+                 "song-zoo-v2", // Force refresh zoo
+                 "song-beauty-and-the-beast-v2" // Force refresh beauty
+             ];
             
-            // PRE-BAKING: Apply cached analysis if available (Fresh Demo)
-            demoParsed.forEach(line => {
+            let cleanupCount = 0;
+            for (const oldId of OLD_BROKEN_IDS) {
+                if (allSongs.some(s => s.id === oldId)) {
+                    await deleteSongFromLibrary(oldId);
+                    cleanupCount++;
+                }
+            }
+            
+            if (cleanupCount > 0) {
+                console.log(`Cleaned up ${cleanupCount} old/broken song entries.`);
+                // Refresh list after cleanup
+                allSongs = await getAllSongs();
+                setSavedSongs(allSongs);
+            }
+
+            const lastPlayedId = localStorage.getItem("lastPlayedSongId");
+            let songToLoad: SavedSong | undefined;
+
+            if (lastPlayedId) {
+                songToLoad = allSongs.find(s => s.id === lastPlayedId);
+                if (songToLoad) {
+                    console.log(`Found last played song: ${songToLoad.name}`);
+                }
+            }
+
+            if (!songToLoad) {
+                const demoId = "demo-track";
+                songToLoad = allSongs.find(s => s.id === demoId);
+            }
+
+            // If we found a song in DB, load it NOW to show UI
+            if (songToLoad) {
+                 await loadSongIntoPlayer(songToLoad);
+            } else {
+                // Fallback: Fetch Demo from Network if not in DB
+                await loadFallbackDemo();
+            }
+
+            // ---------------------------------------------
+            // BACKGROUND: Load Initial Songs (don't block UI)
+            // ---------------------------------------------
+            const songsToLoad = INITIAL_SONGS.filter(initSong => !allSongs.some(s => s.id === initSong.id));
+            if (songsToLoad.length > 0 && !isStorageBroken.current) {
+                console.log(`Found ${songsToLoad.length} new initial songs to add.`);
+                
+                // We don't await this strictly for the UI to appear, but since we are in useEffect, 
+                // the UI updates from loadSongIntoPlayer will already be scheduled.
+                // However, to be safe, we can run this logic and then update library.
+                
+                const newSongs: SavedSong[] = [];
+                // Use a map to track successful loads
+                
+                // Show a toast so the user knows something is happening
+                showCoachToast("Detecting new songs in public folder...");
+
+                await Promise.all(songsToLoad.map(async (initSong) => {
+                    try {
+                        // Increase timeout to 60s for large files
+                        const fetchWithTimeout = (url: string, ms: number = 60000) => {
+                             return Promise.race([
+                                 fetch(url),
+                                 new Promise<Response>((_, reject) => setTimeout(() => reject(new Error(`Timeout fetching ${url}`)), ms))
+                             ]);
+                        };
+
+                        const audioUrl = encodeFileUrl(initSong.audioUrl);
+                        const lrcUrl = encodeFileUrl(initSong.lrcUrl);
+
+                        console.log(`Fetching: ${audioUrl} and ${lrcUrl}`);
+
+                        const [audioRes, lrcRes] = await Promise.all([
+                            fetchWithTimeout(audioUrl),
+                            fetchWithTimeout(lrcUrl)
+                        ]);
+                        
+                        if (audioRes.ok && lrcRes.ok) {
+                            const audioBlob = await audioRes.blob();
+                            const lrcText = await lrcRes.text();
+                            const parsedLyrics = parseLRC(lrcText);
+                            
+                            newSongs.push({
+                                id: initSong.id,
+                                name: initSong.name,
+                                audioBlob,
+                                lyrics: parsedLyrics,
+                                createdAt: Date.now()
+                            });
+                            console.log(`Successfully loaded ${initSong.name}`);
+                        } else {
+                            console.warn(`Failed to fetch assets for ${initSong.name}. Status: Audio ${audioRes.status}, LRC ${lrcRes.status}`);
+                        }
+                    } catch (e) {
+                         console.error(`Error loading initial song ${initSong.name}`, e);
+                    }
+                }));
+
+                if (newSongs.length > 0) {
+                    for (const s of newSongs) {
+                        await saveSongToLibrary(s);
+                    }
+                    // Refresh library list
+                    const updatedSongs = await getAllSongs();
+                    setSavedSongs(updatedSongs);
+                    console.log(`Added ${newSongs.length} initial songs.`);
+                    showCoachToast(`Added ${newSongs.length} new songs to Library!`);
+                } else {
+                    console.log("No new songs could be loaded.");
+                }
+            }
+
+            // ---------------------------------------------
+            // AUTO-FIX: Update Lyrics Text without losing Analysis
+            // ---------------------------------------------
+            const fixTargetId = "song-try-everything-v2";
+            const targetSong = allSongs.find(s => s.id === fixTargetId);
+            if (targetSong) {
+                try {
+                    const lrcUrl = "/lyrics/Shakira - Try Everything.lrc";
+                     // Use timestamp to bypass cache
+                     const res = await fetch(encodeFileUrl(lrcUrl) + `?t=${Date.now()}`);
+                    if (res.ok) {
+                        const text = await res.text();
+                        const newParsed = parseLRC(text);
+                        
+                        let needsUpdate = false;
+                        // Check if lengths match to ensure safe merge
+                        if (newParsed.length === targetSong.lyrics.length) {
+                            const mergedLyrics = newParsed.map((newLine, idx) => {
+                                const oldLine = targetSong.lyrics[idx];
+                                // Detect if text is different
+                                if (newLine.text.trim() !== oldLine.text.trim()) {
+                                    needsUpdate = true;
+                                }
+                                // PRESERVE ANALYSIS & TRANSLATION
+                                if (oldLine.analysis) newLine.analysis = oldLine.analysis;
+                                if (oldLine.translation) newLine.translation = oldLine.translation;
+                                return newLine;
+                            });
+
+                            if (needsUpdate) {
+                                console.log(`Updating lyrics text for ${targetSong.name} while preserving analysis...`);
+                                targetSong.lyrics = mergedLyrics;
+                                await saveSongToLibrary(targetSong);
+                                
+                                // If this song is currently playing, update the view immediately
+                                if (songToLoad && songToLoad.id === fixTargetId) {
+                                    setLyrics(mergedLyrics);
+                                    lyricsRef.current = mergedLyrics;
+                                    showCoachToast("Lyrics text updated (Analysis saved!)");
+                                } else {
+                                    // Update the local list so the UI reflects it if we open Library
+                                    setSavedSongs(prev => prev.map(s => s.id === fixTargetId ? targetSong : s));
+                                }
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error("Auto-fix failed", e);
+                }
+            }
+        } catch (fatalError) {
+            console.error("App fatal init error:", fatalError);
+            if (!ignore) {
+                 showCoachToast("App failed to initialize.");
+                 // Last ditch effort: load silent demo
+                 loadFallbackDemo();
+            }
+        }
+    };
+
+    // Helper to load a song into state
+    const loadSongIntoPlayer = async (song: SavedSong) => {
+        // Pre-baking Injection Check
+        const demoId = "demo-track";
+        if (song.id === demoId) {
+             let hasUpdates = false;
+             song.lyrics.forEach(line => {
                 const cleanText = line.text.trim().replace(/\s+/g, ' ');
-                if (PREBAKED_DEMO_ANALYSIS[cleanText]) {
-                    const cached = PREBAKED_DEMO_ANALYSIS[cleanText];
+                const cached = PREBAKED_DEMO_ANALYSIS[cleanText];
+                const isAnalysisEmpty = !line.analysis || (line.analysis.links.length === 0 && line.analysis.stress.length === 0);
+                
+                if (cached && (isAnalysisEmpty || !line.translation)) {
                     line.analysis = {
                         links: cached.links,
                         stress: cached.stress,
@@ -271,56 +384,89 @@ const App: React.FC = () => {
                         explanation: cached.explanation
                     };
                     line.translation = cached.translation;
+                    hasUpdates = true;
                 }
             });
-
-            const demoSong: SavedSong = {
-                id: demoId,
-                name: "Demo: Taylor Swift - The Fate of Ophelia",
-                audioBlob: demoAudioBlob,
-                lyrics: demoParsed,
-                createdAt: Date.now()
-            };
-
-            // 3. Save New Demo Song to Library (Only if DB load didn't fail, to avoid overwriting existing data)
-            if (!dbLoadFailed) {
-                try {
-                    await saveSongToLibrary(demoSong);
-                    // 4. Update State from DB to be sure
-                    const updatedSongs = await getAllSongs();
-                    if (ignore) return;
-                    setSavedSongs(updatedSongs);
-                } catch (saveError) {
-                    if (ignore) return;
-                    console.error("Failed to save demo to DB, using in-memory only", saveError);
-                    // Fallback: Use in-memory state if DB fails
-                    setSavedSongs([demoSong]);
-                    showCoachToast("Storage error: Songs may not persist.");
-                }
-            } else {
-                 console.warn("DB load failed previously, using in-memory demo to avoid overwriting potential data");
-                 setSavedSongs([demoSong]);
-                 showCoachToast("Library unavailable. Changes won't be saved.");
+            if (hasUpdates) {
+                saveSongToLibrary(song).catch(console.warn);
             }
             
-            if (ignore) return;
-
-            setFileName(demoSong.name);
-            setLyrics(demoSong.lyrics);
-            lyricsRef.current = demoSong.lyrics; // Sync ref immediately
-            setCurrentSongId(demoSong.id);
-            setCurrentAudioBlob(demoSong.audioBlob);
-                
-            if (audioRef.current) {
-                setAudioSource(demoSong.audioBlob);
+            // Footer cleanup
+            const lastLine = song.lyrics[song.lyrics.length - 1];
+            if (lastLine && lastLine.text.toLowerCase().includes("rentanadviser")) {
+                song.lyrics = song.lyrics.slice(0, -1);
+                saveSongToLibrary(song).catch(console.warn);
             }
-        } catch (fatalError) {
-            if (ignore) return;
-            console.error("Fatal initialization error", fatalError);
-            // Last resort fallback
-            setLyrics(parseLRC(DEMO_LRC));
-            setAudioSource(createSilentBlob());
-            showCoachToast("App failed to initialize.");
+        }
+
+        setSavedSongs(await getAllSongs()); // Ensure list is up to date
+        setFileName(song.name);
+        setLyrics(song.lyrics);
+        lyricsRef.current = song.lyrics;
+        setCurrentSongId(song.id);
+        setCurrentAudioBlob(song.audioBlob);
+        if (audioRef.current) {
+            setAudioSource(song.audioBlob);
+        }
+    };
+
+    // Helper for network fallback
+    const loadFallbackDemo = async () => {
+        console.log("Loading fallback demo from network...");
+        let demoAudioBlob: Blob;
+        let demoLyricsText: string;
+
+        try {
+            const audioUrl = encodeFileUrl(DEMO_AUDIO_URL);
+            const audioRes = await fetch(audioUrl);
+            if (!audioRes.ok) throw new Error("Failed");
+            demoAudioBlob = await audioRes.blob();
+        } catch (e) {
+            demoAudioBlob = createSilentBlob();
+        }
+
+        try {
+            const lrcUrl = encodeFileUrl(DEMO_LRC_URL);
+            const lrcRes = await fetch(lrcUrl);
+            demoLyricsText = lrcRes.ok ? await lrcRes.text() : DEMO_LRC;
+        } catch (e) {
+            demoLyricsText = DEMO_LRC;
+        }
+
+        const parsedLyrics = parseLRC(demoLyricsText);
+        
+        // Inject pre-baked
+        parsedLyrics.forEach(line => {
+             const cleanText = line.text.trim().replace(/\s+/g, ' ');
+             const cached = PREBAKED_DEMO_ANALYSIS[cleanText];
+             if (cached) {
+                 line.analysis = { ...cached };
+                 line.translation = cached.translation;
+             }
+        });
+
+        const demoSong: SavedSong = {
+            id: "demo-track",
+            name: "Demo: Taylor Swift - The Fate of Ophelia",
+            audioBlob: demoAudioBlob,
+            lyrics: parsedLyrics,
+            createdAt: Date.now()
+        };
+
+        // Try to save it
+        if (!isStorageBroken.current) {
+            await saveSongToLibrary(demoSong);
+        }
+
+        setLyrics(parsedLyrics);
+        lyricsRef.current = parsedLyrics;
+        setFileName(demoSong.name);
+        setCurrentSongId(demoSong.id);
+        setCurrentAudioBlob(demoAudioBlob);
+        setSavedSongs(await getAllSongs());
+        
+        if (audioRef.current) {
+            setAudioSource(demoAudioBlob);
         }
     };
 
@@ -359,10 +505,21 @@ const App: React.FC = () => {
   // --- Audio Logic ---
   const safePlay = useCallback(() => {
     if (audioRef.current) {
+      // Check if source is valid
+      if (!audioRef.current.src || audioRef.current.error) {
+          console.warn("Cannot play: No valid audio source or error present.");
+          return;
+      }
+      
       const promise = audioRef.current.play();
       if (promise !== undefined) {
         promise.catch(error => {
           if (error.name === 'AbortError') return;
+          // Ignore NotSupportedError if it happens during loading/swapping
+          if (error.name === 'NotSupportedError') {
+              console.warn("Audio playback not supported (likely no source yet):", error);
+              return;
+          }
           console.error("Audio playback error:", error);
         });
       }
@@ -537,10 +694,11 @@ const App: React.FC = () => {
          };
          
          // Save to DB asynchronously
-         saveSongToLibrary(songToSave).catch(e => {
+         saveSongToLibrary(songToSave)
+             .then(() => console.log(`Auto-saved analysis for line ${index} to IndexedDB`))
+             .catch(e => {
              console.error("Auto-save failed", e);
-             // Optional: Show toast only on critical failures, or maybe debounce warnings
-         });
+         }); // Optional: Show toast only on critical failures, or maybe debounce warnings
          
          // Update local library state immediately without full reload
          setSavedSongs(prev => {
@@ -681,6 +839,7 @@ const App: React.FC = () => {
       lyricsRef.current = song.lyrics; // Sync ref
       setCurrentAudioBlob(song.audioBlob);
       setCurrentSongId(song.id);
+      localStorage.setItem("lastPlayedSongId", song.id); // Persist last played
       setIsLibraryOpen(false);
       setPlayerState(prev => ({ ...prev, isPlaying: false, currentTime: 0 }));
       showCoachToast(`Loaded: ${song.name}`);

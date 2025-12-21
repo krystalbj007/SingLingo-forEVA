@@ -77,13 +77,13 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0, height: 0, marginBottom: 0 }}
                             transition={{ duration: 0.2 }}
-                            className="group flex items-center justify-between p-4 rounded-xl bg-white/[0.03] hover:bg-white/[0.06] border border-white/5 transition-all relative"
+                            className="group flex items-center justify-between p-3 rounded-xl bg-white/[0.03] hover:bg-white/[0.06] border border-white/5 transition-all relative"
                         >
                             <div className="flex-1 min-w-0 mr-4">
-                                <h3 className="text-white font-medium truncate mb-1 text-lg">{song.name}</h3>
-                                <div className="flex items-center gap-3 text-xs text-slate-400">
+                                <h3 className="text-white font-medium truncate mb-0.5 text-sm md:text-base">{song.name}</h3>
+                                <div className="flex items-center gap-3 text-[10px] md:text-xs text-slate-400">
                                     <span className="flex items-center gap-1">
-                                        <Calendar size={12} />
+                                        <Calendar size={10} className="md:w-3 md:h-3" />
                                         {new Date(song.createdAt).toLocaleDateString()}
                                     </span>
                                     <span className="w-1 h-1 rounded-full bg-slate-600"></span>
@@ -103,7 +103,7 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({
                                                 e.stopPropagation();
                                                 setDeleteConfirmId(null);
                                             }}
-                                            className="px-3 py-1.5 rounded-full text-slate-400 hover:text-white text-xs font-medium transition-colors cursor-pointer"
+                                            className="px-2 py-1 md:px-3 md:py-1.5 rounded-full text-slate-400 hover:text-white text-[10px] md:text-xs font-medium transition-colors cursor-pointer"
                                         >
                                             Cancel
                                         </button>
@@ -115,7 +115,7 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({
                                                 onDeleteSong(song.id);
                                                 setDeleteConfirmId(null);
                                             }}
-                                            className="px-4 py-2 rounded-full bg-red-500 hover:bg-red-600 text-white font-bold text-sm shadow-[0_0_15px_rgba(239,68,68,0.4)] transition-all cursor-pointer"
+                                            className="px-3 py-1.5 md:px-4 md:py-2 rounded-full bg-red-500 hover:bg-red-600 text-white font-bold text-xs md:text-sm shadow-[0_0_15px_rgba(239,68,68,0.4)] transition-all cursor-pointer"
                                         >
                                             Confirm
                                         </button>
@@ -129,9 +129,9 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({
                                                 e.stopPropagation();
                                                 onSelectSong(song);
                                             }}
-                                            className="flex items-center gap-2 px-4 py-2 rounded-full bg-cyan-600/20 text-cyan-400 hover:bg-cyan-600/30 hover:scale-105 transition-all border border-cyan-500/30 font-semibold text-sm cursor-pointer"
+                                            className="flex items-center gap-1.5 px-3 py-1.5 md:px-4 md:py-2 rounded-full bg-cyan-600/20 text-cyan-400 hover:bg-cyan-600/30 hover:scale-105 transition-all border border-cyan-500/30 font-semibold text-xs md:text-sm cursor-pointer"
                                         >
-                                            <Play size={14} fill="currentColor" className="pointer-events-none" />
+                                            <Play size={12} fill="currentColor" className="pointer-events-none md:w-3.5 md:h-3.5" />
                                             <span className="pointer-events-none">Load</span>
                                         </button>
                                         <button 
@@ -141,10 +141,10 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({
                                                 e.stopPropagation();
                                                 setDeleteConfirmId(song.id);
                                             }}
-                                            className="p-2 rounded-full text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
+                                            className="p-1.5 md:p-2 rounded-full text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
                                             title="Delete"
                                         >
-                                            <Trash2 size={18} className="pointer-events-none" />
+                                            <Trash2 size={16} className="pointer-events-none md:w-[18px] md:h-[18px]" />
                                         </button>
                                     </>
                                 )}
