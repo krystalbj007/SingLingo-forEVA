@@ -5,6 +5,7 @@ import { LibraryModal } from './components/LibraryModal';
 import { parseLRC } from './services/lrcParser';
 import { INITIAL_SONGS } from './data/initialSongs';
 import { PREBAKED_DEMO_ANALYSIS } from './data/prebaked';
+import { PREBAKED_LIBRARY_ANALYSIS } from './data/prebaked_library';
 import { analyzeLyricsWithGemini } from './services/geminiService';
 import { saveSongToLibrary, getAllSongs, deleteSongFromLibrary } from './services/storageService';
 import { LyricLine, PlayerState, SavedSong } from './types';
@@ -142,6 +143,32 @@ const App: React.FC = () => {
         } catch (e) {
             return path;
         }
+    };
+
+    // Helper: Enrich lyrics with prebaked data
+    const enrichLyricsWithPrebakedData = (lyricsToEnrich: LyricLine[]) => {
+        let hasUpdates = false;
+        lyricsToEnrich.forEach(line => {
+            const cleanText = line.text.trim().replace(/\s+/g, ' ');
+            
+            // Check both prebaked sources
+            const cached = PREBAKED_DEMO_ANALYSIS[cleanText] || PREBAKED_LIBRARY_ANALYSIS[cleanText];
+            
+            // If we have cached data, and the current line is missing analysis OR translation
+            const isAnalysisEmpty = !line.analysis || (line.analysis.links.length === 0 && line.analysis.stress.length === 0);
+            
+            if (cached && (isAnalysisEmpty || !line.translation)) {
+                line.analysis = {
+                    links: cached.links,
+                    stress: cached.stress,
+                    elisions: cached.elisions,
+                    explanation: cached.explanation
+                };
+                line.translation = cached.translation;
+                hasUpdates = true;
+            }
+        });
+        return hasUpdates;
     };
 
   // --- Initialization ---
@@ -286,31 +313,16 @@ const App: React.FC = () => {
 
     // Helper to load a song into state
     const loadSongIntoPlayer = async (song: SavedSong) => {
-        // Pre-baking Injection Check
-        const demoId = "demo-track";
-        if (song.id === demoId) {
-             let hasUpdates = false;
-             song.lyrics.forEach(line => {
-                const cleanText = line.text.trim().replace(/\s+/g, ' ');
-                const cached = PREBAKED_DEMO_ANALYSIS[cleanText];
-                const isAnalysisEmpty = !line.analysis || (line.analysis.links.length === 0 && line.analysis.stress.length === 0);
-                
-                if (cached && (isAnalysisEmpty || !line.translation)) {
-                    line.analysis = {
-                        links: cached.links,
-                        stress: cached.stress,
-                        elisions: cached.elisions,
-                        explanation: cached.explanation
-                    };
-                    line.translation = cached.translation;
-                    hasUpdates = true;
-                }
-            });
-            if (hasUpdates) {
-                saveSongToLibrary(song).catch(console.warn);
-            }
-            
-            // Footer cleanup
+        // Pre-baking Injection Check (Apply to ALL songs now)
+        const hasUpdates = enrichLyricsWithPrebakedData(song.lyrics);
+        
+        if (hasUpdates) {
+             // If we updated the lyrics with prebaked data, save it back to library
+             saveSongToLibrary(song).catch(console.warn);
+        }
+
+        // Special Demo cleanup (keep this for legacy/safety)
+        if (song.id === "demo-track") {
             const lastLine = song.lyrics[song.lyrics.length - 1];
             if (lastLine && lastLine.text.toLowerCase().includes("rentanadviser")) {
                 song.lyrics = song.lyrics.slice(0, -1);
@@ -355,14 +367,7 @@ const App: React.FC = () => {
         const parsedLyrics = parseLRC(demoLyricsText);
         
         // Inject pre-baked
-        parsedLyrics.forEach(line => {
-             const cleanText = line.text.trim().replace(/\s+/g, ' ');
-             const cached = PREBAKED_DEMO_ANALYSIS[cleanText];
-             if (cached) {
-                 line.analysis = { ...cached };
-                 line.translation = cached.translation;
-             }
-        });
+        enrichLyricsWithPrebakedData(parsedLyrics);
 
         const demoSong: SavedSong = {
             id: "demo-track",
