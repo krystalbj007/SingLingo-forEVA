@@ -57,7 +57,7 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({
         </div>
 
         {/* List */}
-        <div className="overflow-y-auto flex-1 p-4 space-y-3 no-scrollbar">
+        <div className="overflow-y-auto flex-1 p-4 space-y-3 no-scrollbar pb-24">
             {songs.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 text-slate-500">
                     <Music size={48} className="mb-4 opacity-20" />

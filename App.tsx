@@ -6,7 +6,6 @@ import { parseLRC } from './services/lrcParser';
 import { INITIAL_SONGS } from './data/initialSongs';
 import { PREBAKED_DEMO_ANALYSIS } from './data/prebaked';
 import { PREBAKED_LIBRARY_ANALYSIS } from './data/prebaked_library';
-import { analyzeLyricsWithGemini } from './services/geminiService';
 import { saveSongToLibrary, getAllSongs, deleteSongFromLibrary } from './services/storageService';
 import { LyricLine, PlayerState, SavedSong } from './types';
 import { DEMO_LRC, DEMO_AUDIO_URL, DEMO_LRC_URL } from './constants';
@@ -148,16 +147,45 @@ const App: React.FC = () => {
     // Helper: Enrich lyrics with prebaked data
     const enrichLyricsWithPrebakedData = (lyricsToEnrich: LyricLine[]) => {
         let hasUpdates = false;
+
+        // Create a normalized map for fuzzy matching
+        // We combine both sources into one lookup
+        const combinedSource = { ...PREBAKED_DEMO_ANALYSIS, ...PREBAKED_LIBRARY_ANALYSIS };
+        const normalizedMap = new Map<string, typeof PREBAKED_DEMO_ANALYSIS[string]>();
+        
+        // Helper to normalize text: lowercase, remove punctuation, single spaces
+        const normalize = (str: string) => str.toLowerCase().replace(/[^\w\s]|_/g, "").replace(/\s+/g, " ").trim();
+
+        Object.entries(combinedSource).forEach(([key, val]) => {
+            normalizedMap.set(normalize(key), val);
+        });
+
         lyricsToEnrich.forEach(line => {
-            const cleanText = line.text.trim().replace(/\s+/g, ' ');
+            const rawText = line.text;
+            const cleanText = rawText.trim().replace(/\s+/g, ' ');
+            const normalizedText = normalize(rawText);
             
-            // Check both prebaked sources
-            const cached = PREBAKED_DEMO_ANALYSIS[cleanText] || PREBAKED_LIBRARY_ANALYSIS[cleanText];
+            // 1. Try Exact Match
+            let cached = combinedSource[cleanText];
             
+            // 2. Try Normalized Match
+            if (!cached) {
+                cached = normalizedMap.get(normalizedText);
+            }
+
+            // 3. Try "Contains" Match (for combined lines in LRC vs split in Prebaked)
+            // e.g. LRC: "Hello world" -> Prebaked: "Hello" + "World"
+            // This is tricky, but let's try to match segments if we have a very strong partial match?
+            // Actually, let's just try to see if the line *ends with* or *starts with* a known key if it's a combined line.
+            // But simply, let's stick to fuzzy match first.
+
             // If we have cached data, and the current line is missing analysis OR translation
             const isAnalysisEmpty = !line.analysis || (line.analysis.links.length === 0 && line.analysis.stress.length === 0);
             
+            // FORCE UPDATE if we found a match but the line has no analysis
+            // We also update if translation is missing
             if (cached && (isAnalysisEmpty || !line.translation)) {
+                // If it's a fuzzy match, we might want to be careful, but generally it's better than nothing.
                 line.analysis = {
                     links: cached.links,
                     stress: cached.stress,
@@ -168,6 +196,7 @@ const App: React.FC = () => {
                 hasUpdates = true;
             }
         });
+        
         return hasUpdates;
     };
 
@@ -206,26 +235,22 @@ const App: React.FC = () => {
             // STRATEGY: Unblock UI first, then load extra songs
             // ---------------------------------------------
 
-            // CLEANUP: Remove old broken song entries from previous attempts
-            const OLD_BROKEN_IDS = [
-                "song-how-far-ill-go",
-                "song-beauty-and-the-beast",
-                "song-try-everything",
-                "song-remember-me",
-                "song-zoo",
-                "song-try-everything-clean", // remove previous attempt
-                "song-remember-me-clean",
-                "song-zoo-clean",
-                "song-how-far-ill-go-clean", // Clean up potential mismatches
-                 "song-beauty-and-the-beast-clean",
-                 "song-zoo-v2", // Force refresh zoo
-                 "song-beauty-and-the-beast-v2" // Force refresh beauty
-             ];
+            // STRICT CLEANUP: Only allow the 6 official songs
+            const ALLOWED_IDS = [
+                "demo-track", // Taylor Swift - The Fate of Ophelia
+                "song-how-far-ill-go-v2",
+                "song-beauty-and-the-beast-v3",
+                "song-try-everything-v2",
+                "song-remember-me-v2",
+                "song-zoo-v3"
+            ];
             
             let cleanupCount = 0;
-            for (const oldId of OLD_BROKEN_IDS) {
-                if (allSongs.some(s => s.id === oldId)) {
-                    await deleteSongFromLibrary(oldId);
+            // Iterate backwards or use a separate list to avoid modification issues
+            for (const song of allSongs) {
+                if (!ALLOWED_IDS.includes(song.id)) {
+                    console.log(`Cleaning up unauthorized/old song: ${song.name} (${song.id})`);
+                    await deleteSongFromLibrary(song.id);
                     cleanupCount++;
                 }
             }
@@ -267,19 +292,10 @@ const App: React.FC = () => {
             if (songsToLoad.length > 0 && !isStorageBroken.current) {
                 console.log(`Found ${songsToLoad.length} new initial songs to add.`);
                 
-                // We don't await this strictly for the UI to appear, but since we are in useEffect, 
-                // the UI updates from loadSongIntoPlayer will already be scheduled.
-                // However, to be safe, we can run this logic and then update library.
-                
-                const newSongs: SavedSong[] = [];
-                // Use a map to track successful loads
-                
-                // Show a toast so the user knows something is happening
-                showCoachToast("Detecting new songs in public folder...");
+                showCoachToast("Initializing library...");
 
                 await Promise.all(songsToLoad.map(async (initSong) => {
                     try {
-                        // Increase timeout to 60s for large files
                         const fetchWithTimeout = (url: string, ms: number = 60000) => {
                              return Promise.race([
                                  fetch(url),
@@ -302,84 +318,110 @@ const App: React.FC = () => {
                             const lrcText = await lrcRes.text();
                             const parsedLyrics = parseLRC(lrcText);
                             
-                            newSongs.push({
+                            // CRITICAL: Inject Prebaked Analysis IMMEDIATELY
+                            enrichLyricsWithPrebakedData(parsedLyrics);
+
+                            const newSong: SavedSong = {
                                 id: initSong.id,
                                 name: initSong.name,
                                 audioBlob,
                                 lyrics: parsedLyrics,
                                 createdAt: Date.now()
-                            });
-                            console.log(`Successfully loaded ${initSong.name}`);
+                            };
+
+                            await saveSongToLibrary(newSong);
+                            console.log(`Successfully loaded and analyzed ${initSong.name}`);
                         } else {
-                            console.warn(`Failed to fetch assets for ${initSong.name}. Status: Audio ${audioRes.status}, LRC ${lrcRes.status}`);
+                            console.warn(`Failed to fetch assets for ${initSong.name}`);
                         }
                     } catch (e) {
                          console.error(`Error loading initial song ${initSong.name}`, e);
                     }
                 }));
 
-                if (newSongs.length > 0) {
-                    for (const s of newSongs) {
-                        await saveSongToLibrary(s);
-                    }
-                    // Refresh library list
-                    const updatedSongs = await getAllSongs();
-                    setSavedSongs(updatedSongs);
-                    console.log(`Added ${newSongs.length} initial songs.`);
-                    showCoachToast(`Added ${newSongs.length} new songs to Library!`);
-                } else {
-                    console.log("No new songs could be loaded.");
-                }
+                // Refresh library list finally
+                const updatedSongs = await getAllSongs();
+                setSavedSongs(updatedSongs);
+                showCoachToast(`Library ready! (${updatedSongs.length} songs)`);
             }
 
             // ---------------------------------------------
-            // AUTO-FIX: Update Lyrics Text without losing Analysis
+            // AUTO-FIX: Verify Official Songs Integrity
             // ---------------------------------------------
-            const fixTargetId = "song-try-everything-v2";
-            const targetSong = allSongs.find(s => s.id === fixTargetId);
-            if (targetSong) {
-                try {
-                    const lrcUrl = "/lyrics/Shakira - Try Everything.lrc";
-                     // Use timestamp to bypass cache
-                     const res = await fetch(encodeFileUrl(lrcUrl) + `?t=${Date.now()}`);
-                    if (res.ok) {
-                        const text = await res.text();
-                        const newParsed = parseLRC(text);
-                        
-                        let needsUpdate = false;
-                        // Check if lengths match to ensure safe merge
-                        if (newParsed.length === targetSong.lyrics.length) {
-                            const mergedLyrics = newParsed.map((newLine, idx) => {
-                                const oldLine = targetSong.lyrics[idx];
-                                // Detect if text is different
-                                if (newLine.text.trim() !== oldLine.text.trim()) {
-                                    needsUpdate = true;
-                                }
-                                // PRESERVE ANALYSIS & TRANSLATION
-                                if (oldLine.analysis) newLine.analysis = oldLine.analysis;
-                                if (oldLine.translation) newLine.translation = oldLine.translation;
-                                return newLine;
-                            });
+            const OFFICIAL_FIX_TARGETS = [
+                { id: "demo-track", url: DEMO_LRC_URL }, // Add Demo to auto-fix list
+                { id: "song-try-everything-v2", url: "/lyrics/Shakira - Try Everything.lrc" },
+                { id: "song-zoo-v3", url: "/lyrics/Shakira - Zoo.lrc" },
+                { id: "song-beauty-and-the-beast-v3", url: "/lyrics/Beauty and the Beast.lrc" },
+                { id: "song-remember-me-v2", url: "/lyrics/Gael Garcia Bernal - Remember Me.lrc" },
+                { id: "song-how-far-ill-go-v2", url: "/lyrics/How Far I'll Go.lrc" }
+            ];
 
-                            if (needsUpdate) {
-                                console.log(`Updating lyrics text for ${targetSong.name} while preserving analysis...`);
-                                targetSong.lyrics = mergedLyrics;
+            for (const target of OFFICIAL_FIX_TARGETS) {
+                const targetSong = allSongs.find(s => s.id === target.id);
+                if (targetSong) {
+                    try {
+                        // Use timestamp to bypass cache
+                        const res = await fetch(encodeFileUrl(target.url) + `?t=${Date.now()}`);
+                        if (res.ok) {
+                            const text = await res.text();
+                            const newParsed = parseLRC(text);
+                            
+                            // 1. Strict Length Check: If lengths differ, it's definitely wrong or outdated.
+                            // 2. Content Check: If first line differs, it's likely wrong song.
+                            const lengthMismatch = newParsed.length !== targetSong.lyrics.length;
+                            const firstLineMismatch = newParsed.length > 0 && targetSong.lyrics.length > 0 && 
+                                                      newParsed[0].text.trim() !== targetSong.lyrics[0].text.trim();
+
+                            if (lengthMismatch || firstLineMismatch) {
+                                console.log(`Detected corrupted/mismatched song: ${targetSong.name}. Fixing...`);
+                                
+                                // Re-apply prebaked data to the FRESH lyrics
+                                enrichLyricsWithPrebakedData(newParsed);
+                                
+                                targetSong.lyrics = newParsed;
                                 await saveSongToLibrary(targetSong);
                                 
-                                // If this song is currently playing, update the view immediately
-                                if (songToLoad && songToLoad.id === fixTargetId) {
-                                    setLyrics(mergedLyrics);
-                                    lyricsRef.current = mergedLyrics;
-                                    showCoachToast("Lyrics text updated (Analysis saved!)");
+                                // Update runtime state if this is the active song
+                                if (songToLoad && songToLoad.id === target.id) {
+                                    setLyrics(newParsed);
+                                    lyricsRef.current = newParsed;
+                                    showCoachToast("Song repaired automatically.");
                                 } else {
-                                    // Update the local list so the UI reflects it if we open Library
-                                    setSavedSongs(prev => prev.map(s => s.id === fixTargetId ? targetSong : s));
+                                    // Update local list
+                                    setSavedSongs(prev => prev.map(s => s.id === target.id ? targetSong : s));
+                                }
+                            } else {
+                                // Same song, but maybe text updates?
+                                let needsUpdate = false;
+                                const mergedLyrics = newParsed.map((newLine, idx) => {
+                                    const oldLine = targetSong.lyrics[idx];
+                                    if (newLine.text.trim() !== oldLine.text.trim()) {
+                                        needsUpdate = true;
+                                    }
+                                    // Preserve old analysis
+                                    if (oldLine.analysis) newLine.analysis = oldLine.analysis;
+                                    if (oldLine.translation) newLine.translation = oldLine.translation;
+                                    return newLine;
+                                });
+                                
+                                if (needsUpdate) {
+                                    console.log(`Minor text updates for ${targetSong.name}...`);
+                                    targetSong.lyrics = mergedLyrics;
+                                    await saveSongToLibrary(targetSong);
+                                     if (songToLoad && songToLoad.id === target.id) {
+                                        setLyrics(mergedLyrics);
+                                        lyricsRef.current = mergedLyrics;
+                                        showCoachToast("Lyrics text updated.");
+                                    } else {
+                                        setSavedSongs(prev => prev.map(s => s.id === target.id ? targetSong : s));
+                                    }
                                 }
                             }
                         }
+                    } catch (e) {
+                        console.error(`Auto-fix failed for ${target.id}`, e);
                     }
-                } catch (e) {
-                    console.error("Auto-fix failed", e);
                 }
             }
         } catch (fatalError) {
@@ -439,7 +481,8 @@ const App: React.FC = () => {
 
         try {
             const lrcUrl = encodeFileUrl(DEMO_LRC_URL);
-            const lrcRes = await fetch(lrcUrl);
+            // Add timestamp to bypass cache
+            const lrcRes = await fetch(lrcUrl + `?t=${Date.now()}`);
             demoLyricsText = lrcRes.ok ? await lrcRes.text() : DEMO_LRC;
         } catch (e) {
             demoLyricsText = DEMO_LRC;
