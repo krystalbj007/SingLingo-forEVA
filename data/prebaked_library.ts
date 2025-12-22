@@ -161,7 +161,7 @@ export const PREBAKED_LIBRARY_ANALYSIS: Record<string, LinguisticAnalysis & { tr
     "Remember me though I have to say goodbye": {
         translation: "请记住我，虽然我要说再见",
         links: [{ fromWordIndex: 0, toWordIndex: 1, type: "consonant-consonant" }],
-        stress: [{ wordIndex: 0, charIndex: 1 }, { wordIndex: 8, charIndex: 4 }],
+        stress: [{ wordIndex: 0, charIndex: 1 }, { wordIndex: 7, charIndex: 4 }],
         elisions: [],
         explanation: ""
     },
@@ -189,7 +189,7 @@ export const PREBAKED_LIBRARY_ANALYSIS: Record<string, LinguisticAnalysis & { tr
     "Remember me though I have to travel far": {
         translation: "请记住我，虽然我要远行",
         links: [],
-        stress: [{ wordIndex: 0, charIndex: 1 }, { wordIndex: 8, charIndex: 1 }],
+        stress: [{ wordIndex: 0, charIndex: 1 }, { wordIndex: 7, charIndex: 1 }],
         elisions: [],
         explanation: ""
     },
